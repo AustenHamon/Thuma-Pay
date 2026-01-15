@@ -1,6 +1,62 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+class Transaction {
+  final String title;
+  final double amount;
+  final bool incoming;
+  final DateTime date;
+  final String? sourceAccount;
+  final String? destinationAccount;
+
+  const Transaction({
+    required this.title,
+    required this.amount,
+    required this.incoming,
+    required this.date,
+    this.sourceAccount,
+    this.destinationAccount,
+  });
+
+  String get formattedAmount {
+    final prefix = incoming ? '+ ' : '- ';
+    return '$prefix R ${amount.toStringAsFixed(2)}';
+  }
+
+  String get formattedDate {
+    final now = DateTime.now();
+    final difference = now.difference(date);
+    
+    if (difference.inDays == 0) {
+      return 'Today';
+    } else if (difference.inDays == 1) {
+      return 'Yesterday';
+    } else if (difference.inDays < 7) {
+      return '${date.day}/${date.month}';
+    } else {
+      return '${date.day}/${date.month}/${date.year.toString().substring(2)}';
+    }
+  }
+
+  Transaction copyWith({
+    String? title,
+    double? amount,
+    bool? incoming,
+    DateTime? date,
+    String? sourceAccount,
+    String? destinationAccount,
+  }) {
+    return Transaction(
+      title: title ?? this.title,
+      amount: amount ?? this.amount,
+      incoming: incoming ?? this.incoming,
+      date: date ?? this.date,
+      sourceAccount: sourceAccount ?? this.sourceAccount,
+      destinationAccount: destinationAccount ?? this.destinationAccount,
+    );
+  }
+}
+
 class WalletScreen extends StatefulWidget {
   const WalletScreen({super.key});
 
@@ -21,23 +77,68 @@ class _WalletScreenState extends State<WalletScreen> {
     'Sibusiso Pocket Money': 24500.90,
   };
 
-  // Mock recent transactions
-  final List<_TxnItem> _recent = const [
-    _TxnItem(title: 'Deposit', amount: 1500.00, incoming: true, date: 'Today'),
-    _TxnItem(
-      title: 'Internal Transfer',
-      amount: 250.00,
-      incoming: false,
-      date: 'Yesterday',
-    ),
-    _TxnItem(title: 'Refund', amount: 120.00, incoming: true, date: 'Jan 02'),
-    _TxnItem(
-      title: 'Withdrawal',
-      amount: 600.00,
-      incoming: false,
-      date: 'Jan 01',
-    ),
-  ];
+  // Recent transactions list - limited to 10 for performance
+  List<Transaction> _recentTransactions = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _initializeMockTransactions();
+  }
+
+  void _initializeMockTransactions() {
+    final now = DateTime.now();
+    setState(() {
+      _recentTransactions = [
+        Transaction(
+          title: 'Deposit',
+          amount: 1500.00,
+          incoming: true,
+          date: now.subtract(const Duration(hours: 2)),
+        ),
+        Transaction(
+          title: 'Internal Transfer',
+          amount: 250.00,
+          incoming: false,
+          date: now.subtract(const Duration(days: 1)),
+          sourceAccount: 'My Wallet',
+          destinationAccount: 'Senzo Pocket Money',
+        ),
+        Transaction(
+          title: 'Deposit',
+          amount: 120.00,
+          incoming: true,
+          date: now.subtract(const Duration(days: 2)),
+        ),
+        Transaction(
+          title: 'Withdrawal',
+          amount: 600.00,
+          incoming: false,
+          date: now.subtract(const Duration(days: 3)),
+        ),
+        Transaction(
+          title: 'Internal Transfer',
+          amount: 750.00,
+          incoming: true,
+          date: now.subtract(const Duration(days: 5)),
+          sourceAccount: 'Senzo Pocket Money',
+          destinationAccount: 'My Wallet',
+        ),
+        Transaction(
+          title: 'Deposit',
+          amount: 320.50,
+          incoming: true,
+          date: now.subtract(const Duration(days: 7)),
+        ),
+        Transaction(
+          title: 'Internal Transfer',
+          amount: 180.00,
+          incoming: false,
+          date: now.subtract(const Duration(days: 10)),
+        ),
+      ];
+    });
+  }
 
   @override
   void dispose() {
@@ -78,16 +179,48 @@ class _WalletScreenState extends State<WalletScreen> {
 
   void _onConfirm() {
     // In production, trigger transfer flow here
+    final amount = _parsedAmount;
+    final now = DateTime.now();
+    
+    // Create two transactions for the transfer
+    final outgoingTransaction = Transaction(
+      title: 'Internal Transfer',
+      amount: amount,
+      incoming: false,
+      date: now,
+      sourceAccount: _fromAccount,
+      destinationAccount: _toAccount,
+    );
+    
+    final incomingTransaction = Transaction(
+      title: 'Internal Transfer',
+      amount: amount,
+      incoming: true,
+      date: now,
+      sourceAccount: _fromAccount,
+      destinationAccount: _toAccount,
+    );
+    
+    setState(() {
+      // Add new transactions to the top of the list
+      _recentTransactions.insert(0, outgoingTransaction);
+      _recentTransactions.insert(1, incomingTransaction);
+      
+      // Keep only the last 10 transactions for performance
+      if (_recentTransactions.length > 10) {
+        _recentTransactions = _recentTransactions.take(10).toList();
+      }
+      
+      _amountController.clear();
+    });
+    
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          'Transferring R ${_parsedAmount.toStringAsFixed(2)} from $_fromAccount to $_toAccount',
+          'Transferring R ${amount.toStringAsFixed(2)} from $_fromAccount to $_toAccount',
         ),
       ),
     );
-    setState(() {
-      _amountController.clear();
-    });
   }
 
   @override
@@ -373,38 +506,97 @@ class _WalletScreenState extends State<WalletScreen> {
   }
 
   Widget _buildRecentTransactions(ThemeData theme) {
+    if (_recentTransactions.isEmpty) {
+      return _buildEmptyState(theme);
+    }
+    
     return ListView.separated(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
+      itemCount: _recentTransactions.length,
+      separatorBuilder: (_, __) => Divider(
+        height: 1,
+        color: theme.colorScheme.outline.withValues(alpha: 0.2),
+      ),
       itemBuilder: (context, index) {
-        final item = _recent[index];
-        final color = item.incoming ? Colors.green : theme.colorScheme.error;
-        return ListTile(
-          leading: CircleAvatar(
-            backgroundColor: color.withValues(alpha: 0.12),
-            child: Icon(
-              item.incoming
-                  ? Icons.arrow_downward_rounded
-                  : Icons.arrow_upward_rounded,
-              color: color,
-            ),
-          ),
-          title: Text(
-            item.title,
-            style: const TextStyle(fontWeight: FontWeight.w600),
-          ),
-          subtitle: Text(item.date),
-          trailing: Text(
-            '${item.incoming ? '+ ' : '- '}R ${item.amount.toStringAsFixed(2)}',
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: color,
-              fontWeight: FontWeight.w700,
+        final transaction = _recentTransactions[index];
+        final color = transaction.incoming 
+            ? const Color(0xFF2E7D32) 
+            : theme.colorScheme.error;
+            
+        return Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: () {
+              // Optional: Show transaction details
+            },
+            borderRadius: BorderRadius.circular(8),
+            child: ListTile(
+              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+              leading: CircleAvatar(
+                backgroundColor: color.withValues(alpha: 0.12),
+                child: Icon(
+                  transaction.incoming
+                      ? Icons.arrow_downward_rounded
+                      : Icons.arrow_upward_rounded,
+                  color: color,
+                  size: 20,
+                ),
+              ),
+              title: Text(
+                transaction.title,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              subtitle: Text(
+                transaction.formattedDate,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+              trailing: Text(
+                transaction.formattedAmount,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: color,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
             ),
           ),
         );
       },
-      separatorBuilder: (_, __) => const Divider(height: 1),
-      itemCount: _recent.length,
+    );
+  }
+  
+  Widget _buildEmptyState(ThemeData theme) {
+    return Container(
+      padding: const EdgeInsets.all(32),
+      child: Column(
+        children: [
+          Icon(
+            Icons.receipt_long_outlined,
+            size: 64,
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+          const SizedBox(height: 16),
+          Text(
+            'No recent transactions',
+            style: theme.textTheme.titleMedium?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Your transaction history will appear here',
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.7),
+            ),
+            textAlign: TextAlign.center,
+          ),
+        ],
+      ),
     );
   }
 }
@@ -640,15 +832,3 @@ class _Labeled extends StatelessWidget {
   }
 }
 
-class _TxnItem {
-  final String title;
-  final double amount;
-  final bool incoming;
-  final String date;
-  const _TxnItem({
-    required this.title,
-    required this.amount,
-    required this.incoming,
-    required this.date,
-  });
-}
