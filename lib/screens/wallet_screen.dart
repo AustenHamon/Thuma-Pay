@@ -54,6 +54,28 @@ class _WalletScreenState extends State<WalletScreen> {
     return _parsedAmount > 0 && _fromAccount != _toAccount;
   }
 
+  void _showAccountSelectorBottomSheet({
+    required String title,
+    required String selectedAccount,
+    required String? excludeAccount,
+    required Function(String) onAccountSelected,
+  }) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (context) => _AccountSelectorBottomSheet(
+        title: title,
+        accounts: _balances,
+        selectedAccount: selectedAccount,
+        excludeAccount: excludeAccount,
+        onAccountSelected: onAccountSelected,
+      ),
+    );
+  }
+
   void _onConfirm() {
     // In production, trigger transfer flow here
     ScaffoldMessenger.of(context).showSnackBar(
@@ -259,33 +281,17 @@ class _WalletScreenState extends State<WalletScreen> {
           // Transfer From
           _Labeled(
             label: 'Transfer From',
-            child: DropdownButtonFormField<String>(
-              initialValue: _fromAccount,
-              items: _balances.keys
-                  .map(
-                    (e) => DropdownMenuItem(
-                      value: e,
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text(e),
-                          Text(
-                            'R ${_balances[e]!.toStringAsFixed(2)}',
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: theme.colorScheme.onSurfaceVariant,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  )
-                  .toList(),
-              onChanged: (v) =>
-                  setState(() => _fromAccount = v ?? _fromAccount),
-              decoration: const InputDecoration(
-                border: OutlineInputBorder(),
-                isDense: true,
+            child: _AccountSelector(
+              selectedAccount: _fromAccount,
+              onTap: () => _showAccountSelectorBottomSheet(
+                title: 'Select source account',
+                selectedAccount: _fromAccount,
+                excludeAccount: _toAccount,
+                onAccountSelected: (account) {
+                  setState(() => _fromAccount = account);
+                },
               ),
+              theme: theme,
             ),
           ),
 
@@ -312,16 +318,17 @@ class _WalletScreenState extends State<WalletScreen> {
           // Transfer To
           _Labeled(
             label: 'Transfer To',
-            child: DropdownButtonFormField<String>(
-              initialValue: _toAccount,
-              items: _balances.keys
-                  .map((e) => DropdownMenuItem(value: e, child: Text(e)))
-                  .toList(),
-              onChanged: (v) => setState(() => _toAccount = v ?? _toAccount),
-              decoration: const InputDecoration(
-                border: OutlineInputBorder(),
-                isDense: true,
+            child: _AccountSelector(
+              selectedAccount: _toAccount,
+              onTap: () => _showAccountSelectorBottomSheet(
+                title: 'Select destination account',
+                selectedAccount: _toAccount,
+                excludeAccount: _fromAccount,
+                onAccountSelected: (account) {
+                  setState(() => _toAccount = account);
+                },
               ),
+              theme: theme,
             ),
           ),
 
@@ -398,6 +405,211 @@ class _WalletScreenState extends State<WalletScreen> {
       },
       separatorBuilder: (_, __) => const Divider(height: 1),
       itemCount: _recent.length,
+    );
+  }
+}
+
+class _AccountSelector extends StatelessWidget {
+  final String selectedAccount;
+  final VoidCallback onTap;
+  final ThemeData theme;
+
+  const _AccountSelector({
+    required this.selectedAccount,
+    required this.onTap,
+    required this.theme,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: InputDecorator(
+        decoration: InputDecoration(
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          filled: true,
+          fillColor: theme.colorScheme.surface,
+          isDense: true,
+          suffixIcon: Icon(
+            Icons.keyboard_arrow_down_rounded,
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              Icons.account_balance_wallet_outlined,
+              color: theme.colorScheme.primary,
+              size: 20,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                selectedAccount,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AccountSelectorBottomSheet extends StatelessWidget {
+  final String title;
+  final Map<String, double> accounts;
+  final String selectedAccount;
+  final String? excludeAccount;
+  final Function(String) onAccountSelected;
+
+  const _AccountSelectorBottomSheet({
+    required this.title,
+    required this.accounts,
+    required this.selectedAccount,
+    this.excludeAccount,
+    required this.onAccountSelected,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final availableAccounts = accounts.keys
+        .where((account) => account != excludeAccount)
+        .toList();
+
+    return Container(
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.of(context).size.height * 0.7,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Drag handle
+          Container(
+            margin: const EdgeInsets.symmetric(vertical: 12),
+            width: 40,
+            height: 4,
+            decoration: BoxDecoration(
+              color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.4),
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+
+          // Title
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Text(
+              title,
+              style: theme.textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 16),
+
+          // Account list
+          Flexible(
+            child: ListView.separated(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              shrinkWrap: true,
+              itemCount: availableAccounts.length,
+              separatorBuilder: (_, __) => const SizedBox(height: 8),
+              itemBuilder: (context, index) {
+                final account = availableAccounts[index];
+                final isSelected = account == selectedAccount;
+                final balance = accounts[account]!;
+
+                return Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: () {
+                      onAccountSelected(account);
+                      Navigator.of(context).pop();
+                    },
+                    borderRadius: BorderRadius.circular(12),
+                    child: Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        border: Border.all(
+                          color: isSelected
+                              ? theme.colorScheme.primary
+                              : theme.colorScheme.outline.withValues(alpha: 0.2),
+                          width: isSelected ? 2 : 1,
+                        ),
+                        borderRadius: BorderRadius.circular(12),
+                        color: isSelected
+                            ? theme.colorScheme.primary.withValues(alpha: 0.08)
+                            : theme.colorScheme.surface,
+                      ),
+                      child: Row(
+                        children: [
+                          // Wallet icon
+                          Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: isSelected
+                                  ? theme.colorScheme.primary.withValues(alpha: 0.12)
+                                  : theme.colorScheme.primary.withValues(alpha: 0.08),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Icon(
+                              Icons.account_balance_wallet_outlined,
+                              color: theme.colorScheme.primary,
+                              size: 20,
+                            ),
+                          ),
+
+                          const SizedBox(width: 12),
+
+                          // Account info
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  account,
+                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  'R ${balance.toStringAsFixed(2)}',
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    color: theme.colorScheme.onSurfaceVariant,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+
+                          // Checkmark for selected account
+                          if (isSelected)
+                            Icon(
+                              Icons.check_circle_rounded,
+                              color: theme.colorScheme.primary,
+                              size: 24,
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+
+          // Safe area padding
+          SizedBox(height: MediaQuery.of(context).padding.bottom),
+        ],
+      ),
     );
   }
 }
